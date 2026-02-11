@@ -154,11 +154,32 @@ class MultiFrameDataset(Dataset):
             # Train = (All) - (Val)
             val_set = set(val_tracks)
             train_tracks = [t for t in all_tracks if t not in val_set]
+                
+            # Save track IDs (folder names) - with fallback for read-only filesystems
+            split_data = [os.path.basename(t) for t in val_tracks]
             
-            # Save track IDs (folder names)
-            os.makedirs(os.path.dirname(self.val_split_file), exist_ok=True)
-            with open(self.val_split_file, 'w') as f:
-                json.dump([os.path.basename(t) for t in val_tracks], f, indent=2)
+            # Try primary location first
+            save_path = self.val_split_file
+            try:
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                with open(save_path, 'w') as f:
+                    json.dump(split_data, f, indent=2)
+                print(f"✅ Split saved to '{save_path}'")
+            except (OSError, IOError) as e:
+                # Fallback to /kaggle/working or temp directory if read-only
+                if "read-only" in str(e).lower() or os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
+                    fallback_path = os.path.join(
+                        os.environ.get("KAGGLE_WORKING_DIR", "/tmp"),
+                        "val_tracks.json"
+                    )
+                    try:
+                        with open(fallback_path, 'w') as f:
+                            json.dump(split_data, f, indent=2)
+                        print(f"⚠️ Primary path read-only. Split saved to '{fallback_path}'")
+                    except Exception as e2:
+                        print(f"⚠️ Could not save split file: {e2}")
+                else:
+                    print(f"⚠️ Could not save split file: {e}")
 
         return train_tracks, val_tracks
 
