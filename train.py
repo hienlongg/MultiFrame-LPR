@@ -57,6 +57,10 @@ def parse_args() -> argparse.Namespace:
         help="Number of data loader workers (default: from config)"
     )
     parser.add_argument(
+        "--grad-clip", type=float, default=None,
+        help="Gradient clipping value (default: from config)"
+    )
+    parser.add_argument(
         "--hidden-size", type=int, default=None,
         help="LSTM hidden size for CRNN (default: from config)"
     )
@@ -67,6 +71,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--transformer-layers", type=int, default=None,
         help="Number of transformer encoder layers (default: from config)"
+    )
+    parser.add_argument(
+        "--transformer-dropout",
+        type=float,
+        default=None,
+        help="Dropout rate for transformer layers (default: from config)",
     )
     parser.add_argument(
         "--aug-level",
@@ -111,9 +121,11 @@ def main():
         'data_root': 'DATA_ROOT',
         'seed': 'SEED',
         'num_workers': 'NUM_WORKERS',
+        'grad_clip': 'GRAD_CLIP',
         'hidden_size': 'HIDDEN_SIZE',
         'transformer_heads': 'TRANSFORMER_HEADS',
         'transformer_layers': 'TRANSFORMER_LAYERS',
+        'transformer_dropout': 'TRANSFORMER_DROPOUT',
     }
     
     for arg_name, config_name in arg_to_config.items():
