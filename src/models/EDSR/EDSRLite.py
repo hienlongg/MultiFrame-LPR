@@ -21,7 +21,7 @@ class EDSRLite(nn.Module):
         
         # Tail: Output projection
         tail = [Upsampler(conv, scale=2, n_feats=num_features, act=False), 
-                conv(num_features, num_features, kernel_size=3)]
+                conv(num_features, out_channels, kernel_size=3)]
         self.tail = nn.Sequential(*tail)
     
     def forward(self, x):
