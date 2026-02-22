@@ -7,6 +7,7 @@ from src.models.components import (
     ResNetFeatureExtractor,
     PositionalEncoding,
 )
+from src.models.LPDiff import DDPM
 
 __all__ = [
     "MultiFrameCRNN",
@@ -15,4 +16,5 @@ __all__ = [
     "CNNBackbone",
     "ResNetFeatureExtractor",
     "PositionalEncoding",
+    "DDPM",
 ]
