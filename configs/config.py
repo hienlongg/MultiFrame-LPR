@@ -60,10 +60,10 @@ class LPDiffTrainConfig:
     use_pretrain_mta: bool = False          # load pretrained MTA weights
     resume_training: bool = False           # resume from checkpoint
     mta_checkpoint: str = "./best_377.pt"   # path to pretrained MTA weights
-    n_iter: int = 1_000_000
-    val_freq: int = 20_000
-    save_checkpoint_freq: int = 10_000
-    print_freq: int = 200
+    epochs: int = 100                       # total training epochs
+    val_freq: int = 5                       # validate every N epochs
+    save_checkpoint_freq: int = 10          # save checkpoint every N epochs
+    print_freq: int = 200                   # log every N iterations
     optimizer: LPDiffOptimizerConfig = field(default_factory=LPDiffOptimizerConfig)
     ema: EMAConfig = field(default_factory=EMAConfig)
 
