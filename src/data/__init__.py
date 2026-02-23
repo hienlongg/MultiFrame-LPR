@@ -1,5 +1,5 @@
 """Data module containing dataset and transforms."""
-from src.data.dataset import MultiFrameDataset
+# from src.data.dataset import MultiFrameDataset
 # from src.data.transforms import get_train_transforms, get_val_transforms, get_degradation_transforms
 from src.data.lpdiff_dataset import LPDiffDataset, create_dataset, create_dataloader
 from src.data.lpdiff_transforms import (
@@ -9,7 +9,7 @@ from src.data.lpdiff_transforms import (
 )
 
 __all__ = [
-    "MultiFrameDataset",
+    # "MultiFrameDataset",
     # "get_train_transforms",
     # "get_val_transforms",
     # "get_degradation_transforms",
