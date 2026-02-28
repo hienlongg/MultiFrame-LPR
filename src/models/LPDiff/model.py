@@ -81,6 +81,8 @@ class DDPM(BaseModel):
         b, c, h, w = self.data['HR'].shape
         l_pix = l_pix.sum() / int(b * c * h * w)
         l_pix.backward()
+        # Clip gradients to prevent explosion (common for diffusion models)
+        torch.nn.utils.clip_grad_norm_(self.netG.parameters(), max_norm=1.0)
         self.optG.step()
         self.log_dict['l_pix'] = l_pix.item()
 

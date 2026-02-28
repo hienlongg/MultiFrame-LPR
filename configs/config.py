@@ -51,7 +51,7 @@ class EMAConfig:
 class LPDiffOptimizerConfig:
     """Optimizer settings for LP-Diff training."""
     type: str = "adam"
-    lr: float = 5e-3
+    lr: float = 1e-4
 
 
 @dataclass
