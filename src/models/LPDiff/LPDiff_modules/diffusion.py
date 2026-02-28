@@ -214,6 +214,7 @@ class GaussianDiffusion(nn.Module):
         sample_inter = (1 | (self.num_timesteps // 10))
         if not self.conditional:
             shape = x_in
+            b = shape[0]
             img = torch.randn(shape, device=device)
             ret_img = img
             for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step',
@@ -224,6 +225,7 @@ class GaussianDiffusion(nn.Module):
         else:
             x = x_in
             shape = x.shape
+            b = shape[0]
             img = torch.randn(shape, device=device)
             ret_img = x
             for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step',
@@ -232,11 +234,20 @@ class GaussianDiffusion(nn.Module):
                 if i % sample_inter == 0:
                     ret_img = torch.cat([ret_img, img], dim=0)
         if continous:
-            return ret_img + x_in
-            # return ret_img
+            # ret_img contains [condition, inter_1, ..., inter_N] each of
+            # size B along dim-0.  Reshape so x_in broadcasts correctly,
+            # then add the condition (residual → SR) to every intermediate.
+            n = ret_img.shape[0] // b
+            ret_img = ret_img.view(n, b, *ret_img.shape[1:])  # [N, B, C, H, W]
+            if self.conditional:
+                ret_img = ret_img + x_in.unsqueeze(0)          # broadcast add
+            ret_img = ret_img.view(-1, *ret_img.shape[2:])     # flatten back
+            return ret_img
         else:
-            return ret_img[-1] + x_in
-            # return ret_img[-1]
+            # img already holds the full final batch [B, C, H, W]
+            if self.conditional:
+                return img + x_in
+            return img
 
     @torch.no_grad()
     def sample(self, batch_size=1, continous=False):
