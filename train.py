@@ -19,6 +19,36 @@ from src.training.trainer import Trainer
 from src.utils.common import seed_everything
 
 
+def _build_model(config) -> torch.nn.Module:
+    """Instantiate model based on config and move to device."""
+    if config.MODEL_TYPE == "temptran":
+        model = AlignedResNetTransOCR(
+            num_classes=config.NUM_CLASSES,
+            transformer_heads=config.TRANSFORMER_HEADS,
+            transformer_layers=config.TRANSFORMER_LAYERS,
+            transformer_ff_dim=config.TRANSFORMER_FF_DIM,
+            dropout=config.TRANSFORMER_DROPOUT,
+            use_stn=config.USE_STN,
+        )
+    elif config.MODEL_TYPE == "restran":
+        model = ResTranOCR(
+            num_classes=config.NUM_CLASSES,
+            transformer_heads=config.TRANSFORMER_HEADS,
+            transformer_layers=config.TRANSFORMER_LAYERS,
+            transformer_ff_dim=config.TRANSFORMER_FF_DIM,
+            dropout=config.TRANSFORMER_DROPOUT,
+            use_stn=config.USE_STN,
+        )
+    else:
+        model = MultiFrameCRNN(
+            num_classes=config.NUM_CLASSES,
+            hidden_size=config.HIDDEN_SIZE,
+            rnn_dropout=config.RNN_DROPOUT,
+            use_stn=config.USE_STN,
+        )
+    return model.to(config.DEVICE)
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -174,10 +204,64 @@ def main():
     print(f"   DEVICE: {config.DEVICE}")
     print(f"   SUBMISSION_MODE: {args.submission_mode}")
     
-    # Validate data path
-    if not os.path.exists(config.DATA_ROOT):
+    # Validate data path (skip for predict-only mode)
+    if args.predict_only:
+        if not args.pretrain:
+            print("❌ ERROR: --predict-only requires --pretrain <checkpoint>")
+            sys.exit(1)
+        if not os.path.exists(config.TEST_DATA_ROOT):
+            print(f"❌ ERROR: Test data not found at {config.TEST_DATA_ROOT}")
+            sys.exit(1)
+    elif not os.path.exists(config.DATA_ROOT):
         print(f"❌ ERROR: Data root not found: {config.DATA_ROOT}")
         sys.exit(1)
+
+    # ── Predict-only: skip all training data setup ──────────────
+    if args.predict_only:
+        # Build model
+        model = _build_model(config)
+
+        # Load checkpoint
+        print(f"📦 Loading pretrained checkpoint: {args.pretrain}")
+        state_dict = torch.load(args.pretrain, map_location=config.DEVICE)
+        model.load_state_dict(state_dict)
+        print("✅ Pretrained weights loaded successfully")
+
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"📊 Model ({config.MODEL_TYPE}): {total_params:,} params")
+
+        # Build test loader
+        test_ds = MultiFrameDataset(
+            root_dir=config.TEST_DATA_ROOT,
+            mode='val',
+            img_height=config.IMG_HEIGHT,
+            img_width=config.IMG_WIDTH,
+            char2idx=config.CHAR2IDX,
+            seed=config.SEED,
+            is_test=True,
+        )
+        test_loader = DataLoader(
+            test_ds,
+            batch_size=config.BATCH_SIZE,
+            shuffle=False,
+            collate_fn=MultiFrameDataset.collate_fn,
+            num_workers=config.NUM_WORKERS,
+            pin_memory=True,
+        )
+
+        print("\n" + "="*60)
+        print("📝 PREDICT-ONLY MODE — GENERATING SUBMISSION FILE")
+        print("="*60)
+        exp_name = config.EXPERIMENT_NAME
+        trainer = Trainer(
+            model=model,
+            train_loader=test_loader,  # placeholder, unused
+            val_loader=None,
+            config=config,
+            idx2char=config.IDX2CHAR,
+        )
+        trainer.predict_test(test_loader, output_filename=f"submission_{exp_name}_final.txt")
+        return
 
     # Common dataset parameters
     common_ds_params = {
@@ -272,31 +356,7 @@ def main():
     )
 
     # Initialize model based on config
-    if config.MODEL_TYPE == "temptran":
-        model = AlignedResNetTransOCR(
-            num_classes=config.NUM_CLASSES,
-            transformer_heads=config.TRANSFORMER_HEADS,
-            transformer_layers=config.TRANSFORMER_LAYERS,
-            transformer_ff_dim=config.TRANSFORMER_FF_DIM,
-            dropout=config.TRANSFORMER_DROPOUT,
-            use_stn=config.USE_STN,
-        ).to(config.DEVICE)
-    elif config.MODEL_TYPE == "restran":
-        model = ResTranOCR(
-            num_classes=config.NUM_CLASSES,
-            transformer_heads=config.TRANSFORMER_HEADS,
-            transformer_layers=config.TRANSFORMER_LAYERS,
-            transformer_ff_dim=config.TRANSFORMER_FF_DIM,
-            dropout=config.TRANSFORMER_DROPOUT,
-            use_stn=config.USE_STN,
-        ).to(config.DEVICE)
-    else:
-        model = MultiFrameCRNN(
-            num_classes=config.NUM_CLASSES,
-            hidden_size=config.HIDDEN_SIZE,
-            rnn_dropout=config.RNN_DROPOUT,
-            use_stn=config.USE_STN,
-        ).to(config.DEVICE)
+    model = _build_model(config)
     
     # Load pretrained checkpoint if provided
     if args.pretrain:
@@ -313,47 +373,6 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"📊 Model ({config.MODEL_TYPE}): {total_params:,} total params, {trainable_params:,} trainable")
-
-    # --predict-only: skip training, go straight to inference
-    if args.predict_only:
-        if not args.pretrain:
-            print("❌ ERROR: --predict-only requires --pretrain <checkpoint>")
-            sys.exit(1)
-        if test_loader is None:
-            if not os.path.exists(config.TEST_DATA_ROOT):
-                print(f"❌ ERROR: Test data not found at {config.TEST_DATA_ROOT}")
-                sys.exit(1)
-            test_ds = MultiFrameDataset(
-                root_dir=config.TEST_DATA_ROOT,
-                mode='val',
-                img_height=config.IMG_HEIGHT,
-                img_width=config.IMG_WIDTH,
-                char2idx=config.CHAR2IDX,
-                seed=config.SEED,
-                is_test=True,
-            )
-            test_loader = DataLoader(
-                test_ds,
-                batch_size=config.BATCH_SIZE,
-                shuffle=False,
-                collate_fn=MultiFrameDataset.collate_fn,
-                num_workers=config.NUM_WORKERS,
-                pin_memory=True,
-            )
-        
-        print("\n" + "="*60)
-        print("📝 PREDICT-ONLY MODE — GENERATING SUBMISSION FILE")
-        print("="*60)
-        exp_name = config.EXPERIMENT_NAME
-        trainer = Trainer(
-            model=model,
-            train_loader=train_loader,
-            val_loader=None,
-            config=config,
-            idx2char=config.IDX2CHAR,
-        )
-        trainer.predict_test(test_loader, output_filename=f"submission_{exp_name}_final.txt")
-        return
 
     # Initialize trainer and start training
     trainer = Trainer(
