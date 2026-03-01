@@ -203,6 +203,10 @@ def main():
     print(f"   LEARNING_RATE: {config.LEARNING_RATE}")
     print(f"   DEVICE: {config.DEVICE}")
     print(f"   SUBMISSION_MODE: {args.submission_mode}")
+    if args.predict_only:
+        print(f"   PREDICT_ONLY: True")
+        print(f"   TEST_DATA_ROOT: {config.TEST_DATA_ROOT}")
+        print(f"   PRETRAIN: {args.pretrain}")
     
     # Validate data path (skip for predict-only mode)
     if args.predict_only:
