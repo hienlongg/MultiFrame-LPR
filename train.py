@@ -50,6 +50,10 @@ def parse_args() -> argparse.Namespace:
         help="Root directory for training data (default: from config)"
     )
     parser.add_argument(
+        "--test-data-root", type=str, default=None,
+        help="Root directory for test data (default: from config)"
+    )
+    parser.add_argument(
         "--seed", type=int, default=None,
         help="Random seed (default: from config)"
     )
@@ -98,6 +102,17 @@ def parse_args() -> argparse.Namespace:
         help="Disable Spatial Transformer Network (STN) alignment",
     )
     parser.add_argument(
+        "--pretrain",
+        type=str,
+        default=None,
+        help="Path to a pretrained checkpoint (.pth) to load before training",
+    )
+    parser.add_argument(
+        "--predict-only",
+        action="store_true",
+        help="Skip training; load --pretrain checkpoint and generate submission only",
+    )
+    parser.add_argument(
         "--submission-mode",
         action="store_true",
         help="Train on full dataset and generate submission file for test data",
@@ -120,6 +135,7 @@ def main():
         'batch_size': 'BATCH_SIZE',
         'learning_rate': 'LEARNING_RATE',
         'data_root': 'DATA_ROOT',
+        'test_data_root': 'TEST_DATA_ROOT',
         'seed': 'SEED',
         'num_workers': 'NUM_WORKERS',
         'grad_clip': 'GRAD_CLIP',
@@ -282,10 +298,62 @@ def main():
             use_stn=config.USE_STN,
         ).to(config.DEVICE)
     
+    # Load pretrained checkpoint if provided
+    if args.pretrain:
+        if os.path.isfile(args.pretrain):
+            print(f"📦 Loading pretrained checkpoint: {args.pretrain}")
+            state_dict = torch.load(args.pretrain, map_location=config.DEVICE)
+            model.load_state_dict(state_dict)
+            print("✅ Pretrained weights loaded successfully")
+        else:
+            print(f"❌ ERROR: Pretrained checkpoint not found: {args.pretrain}")
+            sys.exit(1)
+    
     # Print model summary
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"📊 Model ({config.MODEL_TYPE}): {total_params:,} total params, {trainable_params:,} trainable")
+
+    # --predict-only: skip training, go straight to inference
+    if args.predict_only:
+        if not args.pretrain:
+            print("❌ ERROR: --predict-only requires --pretrain <checkpoint>")
+            sys.exit(1)
+        if test_loader is None:
+            if not os.path.exists(config.TEST_DATA_ROOT):
+                print(f"❌ ERROR: Test data not found at {config.TEST_DATA_ROOT}")
+                sys.exit(1)
+            test_ds = MultiFrameDataset(
+                root_dir=config.TEST_DATA_ROOT,
+                mode='val',
+                img_height=config.IMG_HEIGHT,
+                img_width=config.IMG_WIDTH,
+                char2idx=config.CHAR2IDX,
+                seed=config.SEED,
+                is_test=True,
+            )
+            test_loader = DataLoader(
+                test_ds,
+                batch_size=config.BATCH_SIZE,
+                shuffle=False,
+                collate_fn=MultiFrameDataset.collate_fn,
+                num_workers=config.NUM_WORKERS,
+                pin_memory=True,
+            )
+        
+        print("\n" + "="*60)
+        print("📝 PREDICT-ONLY MODE — GENERATING SUBMISSION FILE")
+        print("="*60)
+        exp_name = config.EXPERIMENT_NAME
+        trainer = Trainer(
+            model=model,
+            train_loader=train_loader,
+            val_loader=None,
+            config=config,
+            idx2char=config.IDX2CHAR,
+        )
+        trainer.predict_test(test_loader, output_filename=f"submission_{exp_name}_final.txt")
+        return
 
     # Initialize trainer and start training
     trainer = Trainer(
