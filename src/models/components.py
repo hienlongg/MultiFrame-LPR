@@ -192,3 +192,109 @@ class PositionalEncoding(nn.Module):
         """
         x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
+class STNAlignment(nn.Module):
+    def __init__(self, in_channels=3):
+        super().__init__()
+        # A lightweight CNN to predict motion parameters (Translation/Rotation/Scale)
+        self.localization = nn.Sequential(
+            nn.Conv2d(in_channels * 2, 32, kernel_size=7, padding=3), # Takes Pair (Ref, Target)
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(32, 64, kernel_size=5, padding=2),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+        )
+
+        # Regressor for the 3x2 affine matrix
+        self.fc_loc = nn.Sequential(
+            nn.Linear(128 * 4 * 16, 128), # Note: Adjust 4*16 based on your input size H/8 * W/8
+            nn.ReLU(True),
+            nn.Linear(128, 3 * 2)
+        )
+
+        # Initialize the weights/bias with identity transformation
+        self.fc_loc[2].weight.data.zero_()
+        self.fc_loc[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+
+    def forward(self, x_ref, x_target):
+        # x_ref: The Center Frame (We align everything to this)
+        # x_target: The frame we want to move
+        
+        # 1. Stack them to compare
+        xs = torch.cat([x_ref, x_target], dim=1)
+        
+        # 2. Predict Alignment Matrix (Theta)
+        feat = self.localization(xs)
+        feat = feat.view(feat.size(0), -1)
+        theta = self.fc_loc(feat)
+        theta = theta.view(-1, 2, 3)
+
+        # 3. Warp the target frame
+        grid = F.affine_grid(theta, x_target.size(), align_corners=False)
+        x_aligned = F.grid_sample(x_target, grid, align_corners=False)
+
+        return x_aligned
+
+class ResNetLR(nn.Module):
+    """
+    Modified ResNet for Low-Resolution Images.
+    Standard ResNet does Conv7x7 (stride 2) -> MaxPool (stride 2).
+    This reduces a 32px height image to 8px immediately. We remove this.
+    """
+    def __init__(self):
+        super().__init__()
+        base_model = resnet34(pretrained=False)
+        
+        # REPLACEMENT: Use a standard 3x3 conv with stride 1.
+        # This preserves the full resolution of your small images.
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = base_model.bn1
+        self.relu = base_model.relu
+        # Note: We REMOVE the MaxPool layer entirely.
+        
+        self.layer1 = base_model.layer1
+        self.layer2 = base_model.layer2
+        self.layer3 = base_model.layer3
+        self.layer4 = base_model.layer4
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        # x = self.maxpool(x)  <-- REMOVED
+        
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x
+
+class TemporalTransformerFusion(nn.Module):
+    def __init__(self, channels, num_frames=5):
+        super().__init__()
+        # Transformer Encoder Layer to mix information across frames
+        # d_model=channels (512), nhead=8
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=channels, nhead=8, batch_first=True)
+        self.transformer = nn.TransformerEncoder(self.encoder_layer, num_layers=1)
+        
+    def forward(self, x):
+        # Input: (Batch, Frames, Channels, Height, Width)
+        b, t, c, h, w = x.size()
+        
+        # We process each spatial pixel (h, w) as a sequence of t frames
+        # Reshape to: (Batch * Height * Width, Frames, Channels)
+        x = x.permute(0, 3, 4, 1, 2).contiguous().view(b * h * w, t, c)
+        
+        # Run Self-Attention: Frames can now "look" at each other
+        # If Frame 1 is blurry, attention will pull info from Frame 2 or 3
+        out = self.transformer(x) # Shape: (B*H*W, T, C)
+        
+        # Simple Average Pooling across the Time dimension (fuse 5 frames to 1)
+        out = torch.mean(out, dim=1) # Shape: (B*H*W, C)
+        
+        # Reshape back to image format
+        out = out.view(b, h, w, c).permute(0, 3, 1, 2) # (Batch, Channels, Height, Width)
+        return out
