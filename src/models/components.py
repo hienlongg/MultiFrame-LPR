@@ -246,7 +246,7 @@ class ResNetLR(nn.Module):
     """
     def __init__(self):
         super().__init__()
-        base_model = resnet34(pretrained=False)
+        base_model = resnet34(weights=None)
         
         # REPLACEMENT: Use a standard 3x3 conv with stride 1.
         # This preserves the full resolution of your small images.

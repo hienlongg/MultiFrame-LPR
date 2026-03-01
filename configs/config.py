@@ -9,7 +9,7 @@ class Config:
     """Training configuration with all hyperparameters."""
     
     # Experiment tracking
-    MODEL_TYPE: str = "restran"  # "crnn" or "restran"
+    MODEL_TYPE: str = "restran"  # "crnn", "restran", or "temptran"
     EXPERIMENT_NAME: str = MODEL_TYPE
     AUGMENTATION_LEVEL: str = "full"  # "full" or "light"
     USE_STN: bool = True  # Enable Spatial Transformer Network

@@ -14,6 +14,7 @@ from configs.config import Config
 from src.data.dataset import MultiFrameDataset
 from src.models.crnn import MultiFrameCRNN
 from src.models.restran import ResTranOCR
+from src.models.temptran import AlignedResNetTransOCR
 from src.training.trainer import Trainer
 from src.utils.common import seed_everything
 
@@ -28,8 +29,8 @@ def parse_args() -> argparse.Namespace:
         help="Experiment name for checkpoint/submission files (default: from config)"
     )
     parser.add_argument(
-        "-m", "--model", type=str, choices=["crnn", "restran"], default=None,
-        help="Model architecture: 'crnn' or 'restran' (default: from config)"
+        "-m", "--model", type=str, choices=["crnn", "restran", "temptran"], default=None,
+        help="Model architecture: 'crnn', 'restran', or 'temptran' (default: from config)"
     )
     parser.add_argument(
         "--epochs", type=int, default=None,
@@ -255,7 +256,16 @@ def main():
     )
 
     # Initialize model based on config
-    if config.MODEL_TYPE == "restran":
+    if config.MODEL_TYPE == "temptran":
+        model = AlignedResNetTransOCR(
+            num_classes=config.NUM_CLASSES,
+            transformer_heads=config.TRANSFORMER_HEADS,
+            transformer_layers=config.TRANSFORMER_LAYERS,
+            transformer_ff_dim=config.TRANSFORMER_FF_DIM,
+            dropout=config.TRANSFORMER_DROPOUT,
+            use_stn=config.USE_STN,
+        ).to(config.DEVICE)
+    elif config.MODEL_TYPE == "restran":
         model = ResTranOCR(
             num_classes=config.NUM_CLASSES,
             transformer_heads=config.TRANSFORMER_HEADS,
